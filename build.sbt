@@ -1,6 +1,6 @@
 val scala3Version = "2.13.4"
 lazy val akkaHttpVersion = "10.2.9"
-lazy val akkaVersion = "2.6.19"
+lazy val akkaVersion = "2.6.9"
 lazy val circeVersion = "0.14.1"
 lazy val root = project
   .in(file("."))

@@ -5,7 +5,7 @@ import akka.persistence.typed.PersistenceId
 import akka.persistence.typed.scaladsl.{Effect, EventSourcedBehavior}
 
 // a single bank account
-class PersistentBankAccount {
+object PersistentBankAccount {
 
   /*
    - fault tolerance
@@ -14,18 +14,20 @@ class PersistentBankAccount {
 
   //  commands
   sealed trait Command
-  case class CreateBankAccount(
-      user: String,
-      initialBalance: Double,
-      replyTo: ActorRef[Response]
-  ) extends Command
-  case class UpdateBalance(
-      id: String,
-      amount: Double,
-      replyTo: ActorRef[Response]
-  ) extends Command
-  case class GetBankAccount(id: String, replyTo: ActorRef[Response])
-      extends Command
+  object Command {
+    case class CreateBankAccount(
+        user: String,
+        initialBalance: Double,
+        replyTo: ActorRef[Response]
+    ) extends Command
+    case class UpdateBalance(
+        id: String,
+        amount: Double,
+        replyTo: ActorRef[Response]
+    ) extends Command
+    case class GetBankAccount(id: String, replyTo: ActorRef[Response])
+        extends Command
+  }
 
   // events = to persiste to Cassandra
   trait Event
@@ -37,20 +39,23 @@ class PersistentBankAccount {
 
   //response
   sealed trait Response
-  case class BankAccountCreatedResponse(id: String) extends Response
-  case class BankAccountBalanceUpdatedResponse(
-      maybeBankAccount: Option[BankAccount]
-  ) extends Response
-  case class GetBankAccountResponse(maybeBankAccount: Option[BankAccount])
-      extends Response
+  object Response {
+    case class BankAccountCreatedResponse(id: String) extends Response
 
+    case class BankAccountBalanceUpdatedResponse(
+        maybeBankAccount: Option[BankAccount]
+    ) extends Response
+
+    case class GetBankAccountResponse(maybeBankAccount: Option[BankAccount])
+        extends Response
+  }
   // command handler = message handler => persist event
   // event handler => update state
   // state
   val commandHandler: (BankAccount, Command) => Effect[Event, BankAccount] =
     (state, command) =>
       command match {
-        case CreateBankAccount(user, initialBalance, bank) =>
+        case Command.CreateBankAccount(user, initialBalance, bank) =>
           /*
            - bank creates me
            - bank sends me CreateBankAccount
@@ -65,23 +70,25 @@ class PersistentBankAccount {
                 BankAccount(id, user = user, balance = initialBalance)
               )
             )
-            .thenReply(bank)(_ => BankAccountCreatedResponse(id = id))
-        case UpdateBalance(_, amount, bank) =>
+            .thenReply(bank)(_ => Response.BankAccountCreatedResponse(id = id))
+        case Command.UpdateBalance(_, amount, bank) =>
           val newBalance = state.balance + amount
           // check for withdraw
           if (newBalance < 0) // illegal
             Effect.reply(replyTo = bank)(
-              BankAccountBalanceUpdatedResponse(None)
+              Response.BankAccountBalanceUpdatedResponse(None)
             )
           else {
             Effect
               .persist(BalanceUpdated(amount = amount))
               .thenReply(replyTo = bank)(newState =>
-                BankAccountBalanceUpdatedResponse(Some(newState))
+                Response.BankAccountBalanceUpdatedResponse(Some(newState))
               )
           }
-        case GetBankAccount(+, bank) =>
-          Effect.reply(replyTo = bank)(GetBankAccountResponse(Some(state)))
+        case Command.GetBankAccount(_, bank) =>
+          Effect.reply(replyTo = bank)(
+            Response.GetBankAccountResponse(Some(state))
+          )
       }
   val eventHandler: (BankAccount, Event) => BankAccount = (state, event) =>
     event match {
