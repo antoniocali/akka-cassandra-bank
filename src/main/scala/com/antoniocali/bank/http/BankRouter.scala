@@ -22,6 +22,10 @@ case class BankAccountCreateRequest(user: String, balance: Double) {
 }
 
 case class FailureResponse(detail: String)
+case class UpdateBalanceRequest(balance: Double) {
+  def toCommand(id: String, replyTo: ActorRef[Response]): Command =
+    Command.UpdateBalance(id = id, amount = balance, replyTo = replyTo)
+}
 
 class BankRouter(bank: ActorRef[Command])(implicit system: ActorSystem[_]) {
   import scala.concurrent.duration._
@@ -29,6 +33,12 @@ class BankRouter(bank: ActorRef[Command])(implicit system: ActorSystem[_]) {
 
   def createBankAccount(request: BankAccountCreateRequest): Future[Response] =
     bank.ask(replyTo => request.toCommand(replyTo))
+
+  def updateBalance(
+      id: String,
+      request: UpdateBalanceRequest
+  ): Future[Response] =
+    bank.ask(replyTo => request.toCommand(id, replyTo))
 
   def getBankAccount(id: String): Future[Response] =
     bank.ask(replyTo => Command.GetBankAccount(id, replyTo))
@@ -42,8 +52,16 @@ class BankRouter(bank: ActorRef[Command])(implicit system: ActorSystem[_]) {
     GET /bank/{uuid}
       Payload: none
       Response:
-        200 OK
-        JSON repr of bank account details
+        - 200 OK
+          JSON repr of bank account details
+        - 404
+
+    PUT /bank/{uuid}
+      PayLoad: new balance
+      Response:
+        - 200 OK
+          Json repr of bank account details
+        - 404 Not Found
    */
 
   val routes =
@@ -85,6 +103,22 @@ class BankRouter(bank: ActorRef[Command])(implicit system: ActorSystem[_]) {
                 )
             }
 
+          } ~ put {
+            entity(as[UpdateBalanceRequest]) { request =>
+              onSuccess(updateBalance(id = id, request = request)) {
+                case Response.BankAccountBalanceUpdatedResponse(
+                      Some(account)
+                    ) =>
+                  complete(account)
+                case Response.GetBankAccountResponse(None) =>
+                  complete(
+                    StatusCodes.NotFound,
+                    FailureResponse(
+                      s"Bank $id not found or withdraw not available"
+                    )
+                  )
+              }
+            }
           }
         }
     }
